@@ -1,41 +1,85 @@
 package scienta.tools.classpathanalysis
 
 import java.io.File
+import java.net.URI
 
 import org.slf4j.Logger
 
-class ClasspathAnalysis(pathEntries: Iterable[File]) {
+import scala.annotation.tailrec
+import scala.reflect.internal.util.ScalaClassLoader.URLClassLoader
+import scala.language.postfixOps
+
+class ClasspathAnalysis(classLoader: ClassLoader) {
 
   private def invertAndMap[V, K](m: Iterable[(V, K)]): Map[K, Iterable[V]] = m groupBy (_._2) mapValues (_ map (_._1))
 
   private val startTime = System.currentTimeMillis()
 
-  private val fileClassesTuples: List[(FileName, Iterable[PathEntry])] = {
-    def toEntry(resource: String) =
-      if (resource endsWith ".class") ClassEntry(resource)
-      else if (resource endsWith ".properties") PropertiesEntry(resource)
-      else FileEntry(resource)
-
-    (pathEntries map PathEntrySource map { source =>
-      (FileName(source.file), source.visibleResources() map toEntry)
-    }).toList
+  @tailrec
+  private def toHomeDir(file: File): File = {
+    if (isJavaHome(file)) file
+    else if (file.getParentFile == null) null
+    else toHomeDir(file.getParentFile)
   }
-  val ioTime = System.currentTimeMillis() - startTime
 
-  val fileEntries: Map[FileName, Iterable[PathEntry]] = Map(fileClassesTuples: _*)
+  private def isJavaHome(file: File) =
+    new File(file, "lib").exists() && new File(file, "bin").exists && new File(new File(file, "bin"), "java").exists
+
+  val javaHome = {
+    val url = (ClassLoader.getSystemClassLoader getResource "java/lang/Object.class").getFile
+    val jarFile = new File((URI create s"${url.substring(0, url indexOf ".jar!")}.jar").toURL.getFile)
+    Option(toHomeDir(jarFile)) getOrElse new File(System getProperty "java.home")
+  }
+
+  private val ioStartTime = System.currentTimeMillis()
+
+  private val files: Iterable[File] = classLoader match {
+    case loader if loader == ClassLoader.getSystemClassLoader =>
+      System getProperty "java.class.path" split (System getProperty "path.separator") map (new File(_))
+    case loader: URLClassLoader =>
+      loader.getURLs.toList map (_.getFile) map (new File(_))
+    case _ => Nil
+  }
+
+  private val fileClassesTuples: Iterable[(FileName, Iterable[PathEntry])] = files map PathEntrySource map { source =>
+    (FileName(source.file), source.visibleResources())
+  }
+
+  val ioTime = System.currentTimeMillis() - ioStartTime
+
+  val fileEntries: Map[FileName, Iterable[PathEntry]] = Map(fileClassesTuples.toSeq: _*)
 
   val fileEntryPairs: Iterable[(FileName, PathEntry)] =
     fileClassesTuples flatMap { case (file, names) => names map ((file, _))}
 
-  val multipleSourcePairs: Map[PathEntry, Iterable[FileName]] = invertAndMap(fileEntryPairs) filter (_._2.size > 1)
+  private val entrySourcesPairs: Map[PathEntry, Iterable[FileName]] = invertAndMap(fileEntryPairs)
 
-  private val irrelevantFiles = Set("META-INF/MANIFEST.MF", "META-INF/INDEX.LIST", "LICENSE.txt", "license.txt")
+  val multipleSourcePairs: Map[PathEntry, Iterable[FileName]] = entrySourcesPairs filter (_._2.size > 1)
 
   private def relevantClass(entry: PathEntry) = entry.isInstanceOf[ClassEntry] && !(entry.name contains "$")
 
-  private def relevantFile (entry: PathEntry) = entry.isInstanceOf[FileEntry] && !(irrelevantFiles contains entry.name)
+  val allClassNames = (fileEntryPairs filter { pair => relevantClass(pair._2) } map (_._2.name)).toSet
 
-  private def relevantProperties (entry: PathEntry) = entry.isInstanceOf[PropertiesEntry]
+  private def isServiceLike(file: FileEntry) = allClassNames contains file.fileName
+
+  private val irrelevantFiles =
+    Set[String => Boolean](_ == "META-INF/MANIFEST.MF", _ == "META-INF/INDEX.LIST", _ == "LICENSE.txt", _ == "license.txt")
+
+  private def relevantFile (entry: PathEntry) =
+    entry.isInstanceOf[FileEntry] && !(irrelevantFiles exists (_(entry.name)))
+
+  private val irrelevantProperties =
+    Set[String => Boolean](
+      _ endsWith "pom.properties",
+      _ startsWith "sun/tools/",
+      _ startsWith "sun/rmi/",
+      _ startsWith "com/sun/",
+      _ startsWith "com/oracle",
+      _ startsWith "jdk/nashorn",
+      _ startsWith "jdk/internal")
+
+  private def relevantProperties (entry: PathEntry) =
+    entry.isInstanceOf[PropertiesEntry] && !(irrelevantProperties exists (_(entry.name)))
 
   val multipleSourceClasses: Map[ClassEntry, Iterable[FileName]] =
     (multipleSourcePairs filterKeys relevantClass).asInstanceOf[Map[ClassEntry, Iterable[FileName]]]
@@ -43,8 +87,14 @@ class ClasspathAnalysis(pathEntries: Iterable[File]) {
   val multipleSourceProperties: Map[PropertiesEntry, Iterable[FileName]] =
     (multipleSourcePairs filterKeys relevantProperties).asInstanceOf[Map[PropertiesEntry, Iterable[FileName]]]
 
+  val allSourceProperties: Map[PropertiesEntry, Iterable[FileName]] =
+    (entrySourcesPairs filterKeys relevantProperties).asInstanceOf[Map[PropertiesEntry, Iterable[FileName]]]
+
   val multipleSourceFiles: Map[FileEntry, Iterable[FileName]] =
     (multipleSourcePairs filterKeys relevantFile).asInstanceOf[Map[FileEntry, Iterable[FileName]]]
+
+  val allSourceFiles: Map[FileEntry, Iterable[FileName]] =
+    (entrySourcesPairs filterKeys relevantFile).asInstanceOf[Map[FileEntry, Iterable[FileName]]]
 
   val classConflicts: Map[Iterable[FileName], Iterable[ClassEntry]] = invertAndMap(multipleSourceClasses)
 
@@ -73,27 +123,89 @@ class ClasspathAnalysis(pathEntries: Iterable[File]) {
 
 object ClasspathAnalysis {
 
+  private val systemCl = ClassLoader.getSystemClassLoader
+
   type Printer = (String) => Unit
 
-  def logInfo(logger: Logger) = if (logger.isInfoEnabled) apply(logger info)
+  def stdout(): Unit = stdout(systemCl)
 
-  def logDebug(logger: Logger) = if (logger.isDebugEnabled) apply(logger debug)
+  def stdout(cl: ClassLoader): Unit = apply(cl, println)
 
-  def main(args: Array[String]): Unit = ClasspathAnalysis(println)
+  def logInfo(logger: Logger): Unit = logInfo(systemCl, logger)
 
-  def apply(implicit p: Printer): Unit = {
-    implicit val analysis = new ClasspathAnalysis(classpath split pathSep map (new File(_)))
+  def logInfo(cl: ClassLoader, logger: Logger): Unit = if (logger.isInfoEnabled) apply(cl, logger info)
+
+  def logDebug(logger: Logger): Unit = logDebug(systemCl, logger)
+
+  def logDebug(cl: ClassLoader, logger: Logger): Unit = if (logger.isDebugEnabled) apply(cl, logger debug)
+
+  def main(args: Array[String]): Unit = ClasspathAnalysis(classLoader = systemCl, p = println)
+
+  def apply(implicit classLoader: ClassLoader, p: Printer): Unit = {
+    implicit val analysis = new ClasspathAnalysis(Option(classLoader) getOrElse systemCl)
     val start = System.currentTimeMillis()
-    printClassPathIssues
-    p("")
-    printPropertiesIssues(analysis, p)
-    p("")
-    printResourcesIssues(analysis, p)
-    p("")
+    print
     p(s"${analysis.fileEntryPairs.size} resources analyzed in ${analysis.time}ms, ${analysis.multipleSourcePairs.size} multiples found. I/O time ${analysis.ioTime}ms, print time ${System.currentTimeMillis() - start}ms")
   }
 
-  private def printClassPathIssues(implicit analysis: ClasspathAnalysis, p: Printer) {
+  private def print(implicit analysis: ClasspathAnalysis, cl: ClassLoader, p: Printer) {
+    printClassPathIssues
+    p("")
+    printPropertiesIssues
+    p("")
+    printResourcesIssues
+    p("")
+    printServices
+    p("")
+    printVisibleProperties
+  }
+
+  private def isJdk(file: File)(implicit analysis: ClasspathAnalysis) =
+    file.getAbsolutePath startsWith analysis.javaHome.getAbsolutePath
+
+  private def printServices(implicit analysis: ClasspathAnalysis, cl: ClassLoader, p: Printer): Unit = {
+    printHeading("Visible service factory configurations")
+    analysis.allSourceFiles filter { pair => analysis.isServiceLike(pair._1)} map (_._1) foreach { entry =>
+      validFile(entry) foreach { file =>
+        p(s"Service: ${entry.name}")
+        p(s"  Loader: $file")
+        printLines("  ", entry.load)
+      }
+    }
+  }
+
+  private def printVisibleProperties(implicit analysis: ClasspathAnalysis, cl: ClassLoader, p: Printer): Unit = {
+    printHeading("Visible properties")
+    analysis.allSourceProperties.map {
+      case (entry, files) =>
+        validFile(entry) foreach { file =>
+          p(s"${entry.name}:")
+          p(s"  Loader: $file")
+          p(s"  Contents:")
+          entry.load foreach {
+            case (key, value) if value contains (System getProperty "line.separator") =>
+              printLines(s"    $key=", value)
+            case (key, value) =>
+              p(s"    $key=$value")
+          }
+          p("")
+        }
+    }
+  }
+
+  private def printLines(header: String, value: String)(implicit p: Printer) {
+    val lines = value split (System getProperty "line.separator")
+    val spaces = stringOf(" ", header.length)
+    p(s"$header|${lines(0)}")
+    lines.tail foreach { line => p(s"$spaces|$line}")}
+  }
+
+  private def stringOf(str: String, countEm: Int) = (Stream continually str take countEm).mkString
+
+  def validFile(entry: PathEntry)(implicit cl: ClassLoader): Option[File] =
+    entry.toContainingFile filterNot { _.getName contains "org.scala-lang" }
+
+  private def printClassPathIssues(implicit analysis: ClasspathAnalysis, cl: ClassLoader, p: Printer) {
     printHeading("Contested class analysis")
     if (analysis.classConflicts.isEmpty)
       p(s"[CLASS ACT] No contested classes found!")
@@ -121,7 +233,7 @@ object ClasspathAnalysis {
     }
   }
 
-  private def printPropertiesIssues(implicit analysis: ClasspathAnalysis, p: Printer) {
+  private def printPropertiesIssues(implicit analysis: ClasspathAnalysis, cl: ClassLoader, p: Printer) {
     printHeading("Contested properties files analysis")
     if (analysis.propertiesConflicts.isEmpty) {
       p("[PROPERTY SOLD] No contested properties files found")
@@ -136,7 +248,7 @@ object ClasspathAnalysis {
     }
   }
 
-  private def printResourcesIssues(implicit analysis: ClasspathAnalysis, p: Printer) {
+  private def printResourcesIssues(implicit analysis: ClasspathAnalysis, cl: ClassLoader, p: Printer) {
     printHeading("Contested general files analysis")
     if (analysis.fileConflicts.isEmpty) {
       p("[FILES OK] No contested resources found")
@@ -163,7 +275,7 @@ object ClasspathAnalysis {
     }
   }
 
-  private def printWinnerAnalysis(files: Iterable[FileName], entries: Iterable[PathEntry])(selector: PathEntry => Boolean = entry => true)(implicit analysis: ClasspathAnalysis, p: Printer) {
+  private def printWinnerAnalysis(files: Iterable[FileName], entries: Iterable[PathEntry])(selector: PathEntry => Boolean = entry => true)(implicit analysis: ClasspathAnalysis, cl: ClassLoader, p: Printer) {
     val winners = loadersOf(entries)
     p(s"Winner(s):")
     p(s"  ${winners map (_.path) mkString " "}")
@@ -197,20 +309,14 @@ object ClasspathAnalysis {
     "*****************************************************************************************************************"
 
   private def printHeading(section: String)(implicit p: Printer) {
-    val stars = allStars substring (0, section.length + 8)
+    val stars = stringOf("*", section.length + 8)
     p(stars)
     p(s"**  $section  **")
     p(stars)
   }
 
-  private val pathSep = System getProperty "path.separator"
-
-  private def classpath = System getProperty "java.class.path"
-
-  private implicit val cl = Thread.currentThread().getContextClassLoader
-
-  private def loadersOf(classNames: Iterable[PathEntry]): List[FileName] = try {
-    (classNames flatMap (_.toContainingFile)).map(FileName(_)).toSet.toList
+  private def loadersOf(entries: Iterable[PathEntry])(implicit cl: ClassLoader): List[FileName] = try {
+    (entries flatMap (_.toContainingFile)).map(FileName(_)).toSet.toList
   } catch {
     case e: Throwable =>
       throw new IllegalStateException(s"Could not load classes", e)

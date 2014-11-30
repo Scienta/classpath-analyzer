@@ -3,6 +3,9 @@ package scienta.tools.classpathanalysis
 import java.io.File
 import java.net.URI
 
+import scala.io.Source
+import scala.util.Try
+
 sealed abstract class PathEntry(val name: String) {
 
   def isClass: Boolean
@@ -37,6 +40,22 @@ case class PropertiesEntry(path: String) extends PathEntry(path) {
   override def isClass = false
 
   override def isProperties = true
+
+  def load(implicit cl: ClassLoader): Map[String, String] = {
+    import scala.collection.JavaConversions.enumerationAsScalaIterator
+
+    val stream = cl.getResourceAsStream(toResource)
+    val properties = new java.util.Properties()
+    val load = Try(properties.load(stream))
+    stream.close()
+    if (load.isSuccess) {
+      Map(properties.propertyNames().toList map (_.toString) map {
+        key => (key, properties getProperty key)
+      }: _*)
+    } else {
+      Map()
+    }
+  }
 }
 
 case class FileEntry(path: String) extends PathEntry(path) {
@@ -45,6 +64,16 @@ case class FileEntry(path: String) extends PathEntry(path) {
   override def toResource = name
 
   override def isProperties = false
+
+  def fileName = new File(path).getName
+
+  def load(implicit cl: ClassLoader): String = {
+    val stream = cl getResourceAsStream toResource
+    val source = Source fromInputStream stream
+    val read = Try(source.getLines() mkString (System getProperty "line.separator"))
+    stream.close()
+    read getOrElse ""
+  }
 }
 
 case class ClassEntry(path: String) extends PathEntry(path.replace("/", ".") dropRight 6) {

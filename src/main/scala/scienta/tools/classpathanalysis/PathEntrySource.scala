@@ -13,10 +13,11 @@ case class PathEntrySource(file: File) {
   /**
    * @return A list of class resources, which abstract the reading of class data.
    */
-  def visibleResources(): Iterable[String] =
+  def visibleResources(): Iterable[PathEntry] = (
     if (isJarFile) jarFileEntries(file)
     else if (isInJarFile) jarFileEntries(jarPath(file))
     else pathEntries(file)
+    ) map toEntry
 
   private def isJarFile = file.getName endsWith ".jar"
 
@@ -35,6 +36,14 @@ case class PathEntrySource(file: File) {
     val name = file.getPath.substring(0, file.getPath indexOf ".jar!") + ".jar"
     new File(if (name startsWith "file:") name substring "file:".length else name)
   }
+
+  private def toEntry(resource: String) =
+    if (resource endsWith ".class")
+      ClassEntry(resource)
+    else if (resource endsWith ".properties")
+      PropertiesEntry(resource)
+    else
+      FileEntry(resource)
 
   /**
    * Get class resources found in a directory.
