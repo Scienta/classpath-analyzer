@@ -2,6 +2,8 @@ package scienta.tools.classpathanalysis
 
 import java.io.File
 
+import org.slf4j.Logger
+
 class ClasspathAnalysis(pathEntries: Iterable[File]) {
 
   private def invertAndMap[V, K](m: Iterable[(V, K)]): Map[K, Iterable[V]] = m groupBy (_._2) mapValues (_ map (_._1))
@@ -69,11 +71,17 @@ class ClasspathAnalysis(pathEntries: Iterable[File]) {
     }
 }
 
-object ClasspathAnalyzer {
+object ClasspathAnalysis {
 
   type Printer = (String) => Unit
 
-  def analyze(implicit p: Printer): Unit = {
+  def logInfo(logger: Logger) = if (logger.isInfoEnabled) apply(logger info)
+
+  def logDebug(logger: Logger) = if (logger.isDebugEnabled) apply(logger debug)
+
+  def main(args: Array[String]): Unit = ClasspathAnalysis(println)
+
+  def apply(implicit p: Printer): Unit = {
     implicit val analysis = new ClasspathAnalysis(classpath split pathSep map (new File(_)))
     val start = System.currentTimeMillis()
     printClassPathIssues
