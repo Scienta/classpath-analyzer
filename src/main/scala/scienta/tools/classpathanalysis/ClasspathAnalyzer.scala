@@ -204,7 +204,7 @@ object ClasspathAnalysis {
     else s"${v.substring(0, 70)}...<${v.length} total>...${v.substring(v.length - 7, v.length)}"
 
   private def printLines(header: String, value: String)(implicit p: Printer) {
-    val spaces = stringOf(" ", header.length)
+    val spaces = repeated(" ", header.length)
     if (value == null || value.isEmpty) {
       p(s"$header")
     } else if (value contains (System getProperty "line.separator")) {
@@ -222,7 +222,7 @@ object ClasspathAnalysis {
     }
 }
 
-  private def stringOf(str: String, countEm: Int) = (Stream continually str take countEm).mkString
+  private def repeated(str: String, countEm: Int) = (Stream continually str take countEm).mkString
 
   private def validFile(entry: PathEntry)(implicit cl: ClassLoader): Option[File] =
     entry.toContainingFile filterNot { _.getName contains "org.scala-lang" }
@@ -327,11 +327,8 @@ object ClasspathAnalysis {
     }
   }
 
-  private val allStars =
-    "*****************************************************************************************************************"
-
   private def printHeading(section: String)(implicit p: Printer) {
-    val stars = stringOf("*", section.length + 8)
+    val stars = repeated("*", section.length + 8)
     p(stars)
     p(s"**  $section  **")
     p(stars)
