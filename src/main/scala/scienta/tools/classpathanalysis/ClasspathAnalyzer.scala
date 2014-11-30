@@ -27,23 +27,22 @@ class ClasspathAnalysis(pathEntries: Iterable[File]) {
 
   val multipleSourcePairs: Map[PathEntry, Iterable[FileName]] = invertAndMap(fileEntryPairs) filter (_._2.size > 1)
 
-  private def multipleSources[T](relevant: PathEntry => Boolean): Map[PathEntry, Iterable[FileName]] =
-    multipleSourcePairs filterKeys relevant
+  private val irrelevantFiles = Set("META-INF/MANIFEST.MF", "META-INF/INDEX.LIST", "LICENSE.txt", "license.txt")
+
+  private def relevantClass(entry: PathEntry) = entry.isInstanceOf[ClassEntry] && !(entry.name contains "$")
+
+  private def relevantFile (entry: PathEntry) = entry.isInstanceOf[FileEntry] && !(irrelevantFiles contains entry.name)
+
+  private def relevantProperties (entry: PathEntry) = entry.isInstanceOf[PropertiesEntry]
 
   val multipleSourceClasses: Map[ClassEntry, Iterable[FileName]] =
-    multipleSources(_.isInstanceOf[ClassEntry]).asInstanceOf[Map[ClassEntry, Iterable[FileName]]]
+    (multipleSourcePairs filterKeys relevantClass).asInstanceOf[Map[ClassEntry, Iterable[FileName]]]
 
   val multipleSourceProperties: Map[PropertiesEntry, Iterable[FileName]] =
-    multipleSources(_.isInstanceOf[PropertiesEntry]).asInstanceOf[Map[PropertiesEntry, Iterable[FileName]]]
-
-  def irrelevant(name: String) =
-    Set("META-INF/MANIFEST.MF", "META-INF/INDEX.LIST", "LICENSE.txt", "license.txt") contains name
-
-  private def relevantFile (entry: PathEntry) =
-    entry.isInstanceOf[FileEntry] && !irrelevant(entry.name)
+    (multipleSourcePairs filterKeys relevantProperties).asInstanceOf[Map[PropertiesEntry, Iterable[FileName]]]
 
   val multipleSourceFiles: Map[FileEntry, Iterable[FileName]] =
-    multipleSources(relevantFile).asInstanceOf[Map[FileEntry, Iterable[FileName]]]
+    (multipleSourcePairs filterKeys relevantFile).asInstanceOf[Map[FileEntry, Iterable[FileName]]]
 
   val classConflicts: Map[Iterable[FileName], Iterable[ClassEntry]] = invertAndMap(multipleSourceClasses)
 
@@ -76,14 +75,14 @@ object ClasspathAnalyzer {
 
   def analyze(implicit p: Printer): Unit = {
     implicit val analysis = new ClasspathAnalysis(classpath split pathSep map (new File(_)))
-
+    val start = System.currentTimeMillis()
     printClassPathIssues
     p("")
     printPropertiesIssues(analysis, p)
     p("")
     printResourcesIssues(analysis, p)
     p("")
-    p(s"${analysis.fileEntryPairs.size} resources analyzed in ${analysis.time}ms, ${analysis.multipleSourcePairs.size} multiples found. I/O time ${analysis.ioTime}ms")
+    p(s"${analysis.fileEntryPairs.size} resources analyzed in ${analysis.time}ms, ${analysis.multipleSourcePairs.size} multiples found. I/O time ${analysis.ioTime}ms, print time ${System.currentTimeMillis() - start}ms")
   }
 
   private def printClassPathIssues(implicit analysis: ClasspathAnalysis, p: Printer) {

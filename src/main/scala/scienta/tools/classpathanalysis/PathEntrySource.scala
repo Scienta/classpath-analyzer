@@ -13,17 +13,14 @@ case class PathEntrySource(file: File) {
   /**
    * @return A list of class resources, which abstract the reading of class data.
    */
-  def visibleResources(): Iterable[String] = (
+  def visibleResources(): Iterable[String] =
     if (isJarFile) jarFileEntries(file)
     else if (isInJarFile) jarFileEntries(jarPath(file))
     else pathEntries(file)
-    ) filterNot internalClass
 
   private def isJarFile = file.getName endsWith ".jar"
 
   private def isInJarFile = file.getAbsolutePath.contains(".jar!")
-
-  private def internalClass(resource: String) = (resource contains ".class") && (resource contains "$")
 
   /**
    * Get class resources found in a jar file.
