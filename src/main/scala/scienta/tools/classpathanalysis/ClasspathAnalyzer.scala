@@ -71,6 +71,7 @@ class ClasspathAnalysis(classLoader: ClassLoader) {
   private val irrelevantProperties =
     Set[String => Boolean](
       _ endsWith "pom.properties",
+      _ contains "Messages",
       _ startsWith "sun/tools/",
       _ startsWith "sun/rmi/",
       _ startsWith "com/sun/",
@@ -169,7 +170,12 @@ object ClasspathAnalysis {
       validFile(entry) foreach { file =>
         p(s"Service: ${entry.name}")
         p(s"  Loader: $file")
-        printLines("  ", entry.load)
+        val load: String = entry.load
+        if (load.length > 256)
+          p(s"  Contents: <${load.length} chars>")
+        else {
+          printLines("  ", load)
+        }
       }
     }
   }
@@ -182,27 +188,43 @@ object ClasspathAnalysis {
           p(s"${entry.name}:")
           p(s"  Loader: $file")
           p(s"  Contents:")
-          entry.load foreach {
-            case (key, value) if value contains (System getProperty "line.separator") =>
-              printLines(s"    $key=", value)
+          val content: Map[String, String] = entry.load
+          content take 20 foreach {
             case (key, value) =>
-              p(s"    $key=$value")
+              printLines(s"    $key=", value)
           }
+          if (content.size > 20) p(s"    <${content.size} properties total>...")
           p("")
         }
     }
   }
 
+  private def sensibleLength(v: String): String =
+    if (v == null || v.length < 80) v
+    else s"${v.substring(0, 70)}...<${v.length} total>...${v.substring(v.length - 7, v.length)}"
+
   private def printLines(header: String, value: String)(implicit p: Printer) {
-    val lines = value split (System getProperty "line.separator")
     val spaces = stringOf(" ", header.length)
-    p(s"$header|${lines(0)}")
-    lines.tail foreach { line => p(s"$spaces|$line}")}
-  }
+    if (value == null || value.isEmpty) {
+      p(s"$header")
+    } else if (value contains (System getProperty "line.separator")) {
+      val lines = value split (System getProperty "line.separator")
+      if (lines.isEmpty) {
+        p(s"$header${sensibleLength(value)}")
+      } else {
+        p(s"$header|${sensibleLength(lines(0))}")
+        if (lines.length > 1) {
+          lines.tail foreach { line => p(s"$spaces|$line}")}
+        }
+      }
+    } else {
+      p(s"$header${sensibleLength(value)}")
+    }
+}
 
   private def stringOf(str: String, countEm: Int) = (Stream continually str take countEm).mkString
 
-  def validFile(entry: PathEntry)(implicit cl: ClassLoader): Option[File] =
+  private def validFile(entry: PathEntry)(implicit cl: ClassLoader): Option[File] =
     entry.toContainingFile filterNot { _.getName contains "org.scala-lang" }
 
   private def printClassPathIssues(implicit analysis: ClasspathAnalysis, cl: ClassLoader, p: Printer) {
