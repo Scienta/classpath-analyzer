@@ -8,7 +8,7 @@ import scala.collection.JavaConversions.enumerationAsScalaIterator
 /**
  * A source of class file resources.  Can be a jar file or a class file.
  */
-case class LoadableClasspathElement(file: File) {
+case class PathEntrySource(file: File) {
 
   /**
    * @return A list of class resources, which abstract the reading of class data.
