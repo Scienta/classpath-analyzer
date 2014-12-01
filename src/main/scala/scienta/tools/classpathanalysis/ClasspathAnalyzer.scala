@@ -136,13 +136,13 @@ object ClasspathAnalysis {
 
   def stdout(full: Boolean, cl: ClassLoader): Unit = apply(full)(cl, println)
 
-  def logInfo(logger: Logger): Unit = logInfo(false, tcl, logger)
+  def logInfo(logger: Logger): Unit = logInfo(full = false, tcl, logger)
 
-  def logInfo(cl: ClassLoader, logger: Logger): Unit = if (logger.isInfoEnabled) apply(false)(cl, logger info)
+  def logInfo(cl: ClassLoader, logger: Logger): Unit = if (logger.isInfoEnabled) apply(full = false)(cl, logger info)
 
-  def logDebug(logger: Logger): Unit = logDebug(false, tcl, logger)
+  def logDebug(logger: Logger): Unit = logDebug(full = false, tcl, logger)
 
-  def logDebug(cl: ClassLoader, logger: Logger): Unit = if (logger.isDebugEnabled) apply(false)(cl, logger debug)
+  def logDebug(cl: ClassLoader, logger: Logger): Unit = if (logger.isDebugEnabled) apply(full = false)(cl, logger debug)
 
   def logInfo(full: Boolean, logger: Logger): Unit = logInfo(full, tcl, logger)
 
@@ -157,11 +157,11 @@ object ClasspathAnalysis {
   def apply(full: Boolean = false)(implicit classLoader: ClassLoader, p: Printer): Unit = {
     implicit val analysis = new ClasspathAnalysis(Option(classLoader) getOrElse tcl)
     val start = System.currentTimeMillis()
-    print
+    print(full)
     p(s"${analysis.fileEntryPairs.size} resources analyzed in ${analysis.time}ms, ${analysis.multipleSourcePairs.size} multiples found. I/O time ${analysis.ioTime}ms, print time ${System.currentTimeMillis() - start}ms")
   }
 
-  private def print(implicit analysis: ClasspathAnalysis, cl: ClassLoader, p: Printer) {
+  private def print(full: Boolean)(implicit analysis: ClasspathAnalysis, cl: ClassLoader, p: Printer) {
     printClassPathIssues
     p("")
     printPropertiesIssues
