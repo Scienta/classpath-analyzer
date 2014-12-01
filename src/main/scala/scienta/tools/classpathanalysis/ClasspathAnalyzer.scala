@@ -111,6 +111,11 @@ class ClasspathAnalysis(classLoader: ClassLoader, full: Boolean = false) {
 
   val fileConflictsRanked = rank(fileConflicts)
 
+  val conflictyClassSourcesRanked: List[(FileName, Iterable[FileName])] =
+    (classConflicts.keys.flatten.toSet.toList map ((file: FileName) => {
+      (file, (classConflicts.keys map (_.toSet) filter (_ contains file)).flatten filterNot (_ == file))
+    })).sortBy(_._2.size).reverse
+
   val time = System.currentTimeMillis() - startTime
 
   def filesVisibleInLoser(winner: FileName, loser: FileName)(selector: PathEntry => Boolean = entry => true): Option[Iterable[PathEntry]] =
@@ -265,6 +270,12 @@ object ClasspathAnalysis {
           } foreach p
           printWinnerAnalysis(files, classes)(_.isInstanceOf[ClassEntry])
           p("")
+      }
+      p("Most conflict-prone sources:")
+      analysis.conflictyClassSourcesRanked foreach {
+        case (file, conflicts) =>
+          p(s"${conflicts.size} conflict(s): ${file.path}")
+          p(s"  [${conflicts map (_.path) mkString " "}]")
       }
     }
   }
