@@ -9,7 +9,7 @@ import scala.annotation.tailrec
 import scala.reflect.internal.util.ScalaClassLoader.URLClassLoader
 import scala.language.postfixOps
 
-class ClasspathAnalysis(classLoader: ClassLoader) {
+class ClasspathAnalysis(classLoader: ClassLoader, full: Boolean = false) {
 
   private def invertAndMap[V, K](m: Iterable[(V, K)]): Map[K, Iterable[V]] = m groupBy (_._2) mapValues (_ map (_._1))
 
@@ -124,26 +124,38 @@ class ClasspathAnalysis(classLoader: ClassLoader) {
 
 object ClasspathAnalysis {
 
-  private val systemCl = ClassLoader.getSystemClassLoader
+  private val tcl = Thread.currentThread().getContextClassLoader
 
   type Printer = (String) => Unit
 
-  def stdout(): Unit = stdout(systemCl)
+  def stdout(): Unit = stdout(tcl)
 
-  def stdout(cl: ClassLoader): Unit = apply(cl, println)
+  def stdout(cl: ClassLoader): Unit = apply(full = false)(cl, println)
 
-  def logInfo(logger: Logger): Unit = logInfo(systemCl, logger)
+  def stdout(full: Boolean): Unit = stdout(full = false, tcl)
 
-  def logInfo(cl: ClassLoader, logger: Logger): Unit = if (logger.isInfoEnabled) apply(cl, logger info)
+  def stdout(full: Boolean, cl: ClassLoader): Unit = apply(full)(cl, println)
 
-  def logDebug(logger: Logger): Unit = logDebug(systemCl, logger)
+  def logInfo(logger: Logger): Unit = logInfo(false, tcl, logger)
 
-  def logDebug(cl: ClassLoader, logger: Logger): Unit = if (logger.isDebugEnabled) apply(cl, logger debug)
+  def logInfo(cl: ClassLoader, logger: Logger): Unit = if (logger.isInfoEnabled) apply(false)(cl, logger info)
 
-  def main(args: Array[String]): Unit = ClasspathAnalysis(classLoader = systemCl, p = println)
+  def logDebug(logger: Logger): Unit = logDebug(false, tcl, logger)
 
-  def apply(implicit classLoader: ClassLoader, p: Printer): Unit = {
-    implicit val analysis = new ClasspathAnalysis(Option(classLoader) getOrElse systemCl)
+  def logDebug(cl: ClassLoader, logger: Logger): Unit = if (logger.isDebugEnabled) apply(false)(cl, logger debug)
+
+  def logInfo(full: Boolean, logger: Logger): Unit = logInfo(full, tcl, logger)
+
+  def logInfo(full: Boolean, cl: ClassLoader, logger: Logger): Unit = if (logger.isInfoEnabled) apply(full)(cl, logger info)
+
+  def logDebug(full: Boolean, logger: Logger): Unit = logDebug(full, tcl, logger)
+
+  def logDebug(full: Boolean, cl: ClassLoader, logger: Logger): Unit = if (logger.isDebugEnabled) apply(full)(cl, logger debug)
+
+  def main(args: Array[String]): Unit = ClasspathAnalysis(full = false)(classLoader = tcl, p = println)
+
+  def apply(full: Boolean = false)(implicit classLoader: ClassLoader, p: Printer): Unit = {
+    implicit val analysis = new ClasspathAnalysis(Option(classLoader) getOrElse tcl)
     val start = System.currentTimeMillis()
     print
     p(s"${analysis.fileEntryPairs.size} resources analyzed in ${analysis.time}ms, ${analysis.multipleSourcePairs.size} multiples found. I/O time ${analysis.ioTime}ms, print time ${System.currentTimeMillis() - start}ms")
@@ -154,10 +166,12 @@ object ClasspathAnalysis {
     p("")
     printPropertiesIssues
     p("")
-    printResourcesIssues
-    p("")
-    printServices
-    p("")
+    if (full) {
+      printResourcesIssues
+      p("")
+      printServices
+      p("")
+    }
     printVisibleProperties
   }
 
