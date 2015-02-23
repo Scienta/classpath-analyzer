@@ -50,7 +50,7 @@ class ClasspathAnalysis(classLoader: ClassLoader, full: Boolean = false) {
   val fileEntries: Map[FileName, Iterable[PathEntry]] = Map(fileClassesTuples.toSeq: _*)
 
   val fileEntryPairs: Iterable[(FileName, PathEntry)] =
-    fileClassesTuples flatMap { case (file, names) => names map ((file, _))}
+    fileClassesTuples flatMap { case (file, entries) => entries map ((file, _))}
 
   private val entrySourcesPairs: Map[PathEntry, Iterable[FileName]] = invertAndMap(fileEntryPairs)
 
@@ -62,11 +62,17 @@ class ClasspathAnalysis(classLoader: ClassLoader, full: Boolean = false) {
 
   private def isServiceLike(file: FileEntry) = allClassNames contains file.fileName
 
-  private val irrelevantFiles =
-    Set[String => Boolean](_ == "META-INF/MANIFEST.MF", _ == "META-INF/INDEX.LIST", _ == "LICENSE.txt", _ == "license.txt")
-
   private def relevantFile (entry: PathEntry) =
-    entry.isInstanceOf[FileEntry] && !(irrelevantFiles exists (_(entry.name)))
+    entry.isInstanceOf[FileEntry] && noDisqualifiers(irrelevantFiles)(entry.name)
+
+  private def relevantProperties (entry: PathEntry) =
+    entry.isInstanceOf[PropertiesEntry] && noDisqualifiers(irrelevantProperties)(entry.name)
+
+  private val irrelevantFiles =
+    Set[String => Boolean](
+      _ == "META-INF/MANIFEST.MF",
+      _ == "META-INF/INDEX.LIST",
+      _.toLowerCase == "LICENSE.txt")
 
   private val irrelevantProperties =
     Set[String => Boolean](
@@ -79,8 +85,7 @@ class ClasspathAnalysis(classLoader: ClassLoader, full: Boolean = false) {
       _ startsWith "jdk/nashorn",
       _ startsWith "jdk/internal")
 
-  private def relevantProperties (entry: PathEntry) =
-    entry.isInstanceOf[PropertiesEntry] && !(irrelevantProperties exists (_(entry.name)))
+  private def noDisqualifiers[T](funs: Iterable[T => Boolean])(t: T): Boolean = (funs filter (_ apply t)).isEmpty
 
   val multipleSourceClasses: Map[ClassEntry, Iterable[FileName]] =
     (multipleSourcePairs filterKeys relevantClass).asInstanceOf[Map[ClassEntry, Iterable[FileName]]]
@@ -135,29 +140,29 @@ object ClasspathAnalysis {
 
   def stdout(): Unit = stdout(tcl)
 
-  def stdout(cl: ClassLoader): Unit = apply(full = false)(cl, println)
+  def stdout(cl: ClassLoader) = apply(full = false)(cl, println)
 
   def stdout(full: Boolean): Unit = stdout(full = false, tcl)
 
-  def stdout(full: Boolean, cl: ClassLoader): Unit = apply(full)(cl, println)
+  def stdout(full: Boolean, cl: ClassLoader) = apply(full)(cl, println)
 
   def logInfo(logger: Logger): Unit = logInfo(full = false, tcl, logger)
 
-  def logInfo(cl: ClassLoader, logger: Logger): Unit = if (logger.isInfoEnabled) apply(full = false)(cl, logger info)
+  def logInfo(cl: ClassLoader, logger: Logger) = if (logger.isInfoEnabled) apply(full = false)(cl, logger info)
 
   def logDebug(logger: Logger): Unit = logDebug(full = false, tcl, logger)
 
-  def logDebug(cl: ClassLoader, logger: Logger): Unit = if (logger.isDebugEnabled) apply(full = false)(cl, logger debug)
+  def logDebug(cl: ClassLoader, logger: Logger) = if (logger.isDebugEnabled) apply(full = false)(cl, logger debug)
 
   def logInfo(full: Boolean, logger: Logger): Unit = logInfo(full, tcl, logger)
 
-  def logInfo(full: Boolean, cl: ClassLoader, logger: Logger): Unit = if (logger.isInfoEnabled) apply(full)(cl, logger info)
+  def logInfo(full: Boolean, cl: ClassLoader, logger: Logger) = if (logger.isInfoEnabled) apply(full)(cl, logger info)
 
   def logDebug(full: Boolean, logger: Logger): Unit = logDebug(full, tcl, logger)
 
-  def logDebug(full: Boolean, cl: ClassLoader, logger: Logger): Unit = if (logger.isDebugEnabled) apply(full)(cl, logger debug)
+  def logDebug(full: Boolean, cl: ClassLoader, logger: Logger) = if (logger.isDebugEnabled) apply(full)(cl, logger debug)
 
-  def main(args: Array[String]): Unit = ClasspathAnalysis(full = false)(classLoader = tcl, p = println)
+  def main(args: Array[String]) = ClasspathAnalysis(full = false)(classLoader = tcl, p = println)
 
   def apply(full: Boolean = false)(implicit classLoader: ClassLoader, p: Printer): Unit = {
     implicit val analysis = new ClasspathAnalysis(Option(classLoader) getOrElse tcl)
@@ -183,7 +188,7 @@ object ClasspathAnalysis {
   private def isJdk(file: File)(implicit analysis: ClasspathAnalysis) =
     file.getAbsolutePath startsWith analysis.javaHome.getAbsolutePath
 
-  private def printServices(implicit analysis: ClasspathAnalysis, cl: ClassLoader, p: Printer): Unit = {
+  private def printServices(implicit analysis: ClasspathAnalysis, cl: ClassLoader, p: Printer) {
     printHeading("Visible service factory configurations")
     analysis.allSourceFiles filter { pair => analysis.isServiceLike(pair._1)} map (_._1) foreach { entry =>
       validFile(entry) foreach { file =>
@@ -199,7 +204,7 @@ object ClasspathAnalysis {
     }
   }
 
-  private def printVisibleProperties(implicit analysis: ClasspathAnalysis, cl: ClassLoader, p: Printer): Unit = {
+  private def printVisibleProperties(implicit analysis: ClasspathAnalysis, cl: ClassLoader, p: Printer) {
     printHeading("Visible properties")
     analysis.allSourceProperties.map {
       case (entry, files) =>
@@ -251,7 +256,7 @@ object ClasspathAnalysis {
     if (analysis.classConflicts.isEmpty)
       p(s"[CLASS ACT] No contested classes found!")
     else {
-      p(s"[WARNING]  ${analysis.classConflicts.map(_._2.size).sum} classes found two or more times in classpath!")
+      p(s"[WARNING] ${analysis.classConflicts.map(_._2.size).sum} classes found two or more times in classpath!")
       analysis.classConflictsRanked foreach {
         case (files, classes) =>
           p(s"${classes.size} class conflicts, ${files.size} sources:")
