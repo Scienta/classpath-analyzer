@@ -6,7 +6,7 @@ repositories {
 }
 
 group = 'scienta.tools'
-version = '0.1.1'
+version = '0.1.2'
 
 dependencies {
     compile 'org.scala-lang:scala-library:2.11.4',

@@ -7,13 +7,13 @@ import scienta.tools.classpathanalysis.ClasspathAnalyzer
 
 import scala.io.Codec
 
-class Reporter(full: Boolean) {
+class ClasspathReporter(full: Boolean) {
 
   def writeToLog(): Unit =
-    writeToLog(Thread.currentThread().getContextClassLoader, LoggerFactory.getLogger(classOf[Reporter]))
+    writeToLog(Thread.currentThread().getContextClassLoader, LoggerFactory.getLogger(classOf[ClasspathReporter]))
 
   def writeToLog(classLoader: ClassLoader): Unit =
-    writeToLog(classLoader, LoggerFactory.getLogger(classOf[Reporter]))
+    writeToLog(classLoader, LoggerFactory.getLogger(classOf[ClasspathReporter]))
 
   def writeToLog(classLoader: ClassLoader, logger: Logger): Unit = {
     implicit val writer: String => Unit = logger.info

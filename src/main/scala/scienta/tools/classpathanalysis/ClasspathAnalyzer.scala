@@ -85,7 +85,7 @@ class ClasspathAnalyzer(classLoader: ClassLoader, full: Boolean = false) {
       _ startsWith "jdk/nashorn",
       _ startsWith "jdk/internal")
 
-  private def noDisqualifiers[T](funs: Iterable[T => Boolean])(t: T): Boolean = (funs filter (_ apply t)).isEmpty
+  private def noDisqualifiers[T](funs: Iterable[T => Boolean])(t: T): Boolean = !(funs exists (_(t)))
 
   val multipleSourceClasses: Map[ClassEntry, Iterable[FileName]] =
     (multipleSourcePairs filterKeys relevantClass).asInstanceOf[Map[ClassEntry, Iterable[FileName]]]
@@ -195,12 +195,9 @@ object ClasspathAnalyzer {
     printVisibleProperties
   }
 
-  private def isJdk(file: File)(implicit analysis: ClasspathAnalyzer) =
-    file.getAbsolutePath startsWith analysis.javaHome.getAbsolutePath
-
   private def printServices(implicit analysis: ClasspathAnalyzer, cl: ClassLoader, p: Printer) {
     printHeading("Visible service factory configurations")
-    analysis.allSourceFiles filter { pair => analysis.isServiceLike(pair._1)} map (_._1) foreach { entry =>
+    (analysis.allSourceFiles filter { pair => analysis.isServiceLike(pair._1) }).keys foreach { entry =>
       validFile(entry) foreach { file =>
         p(s"Service: ${entry.name}")
         p(s"  Loader: $file")
@@ -216,7 +213,7 @@ object ClasspathAnalyzer {
 
   private def printVisibleProperties(implicit analysis: ClasspathAnalyzer, cl: ClassLoader, p: Printer) {
     printHeading("Visible properties")
-    analysis.allSourceProperties.map {
+    analysis.allSourceProperties foreach {
       case (entry, files) =>
         validFile(entry) foreach { file =>
           p(s"${entry.name}:")
@@ -277,7 +274,7 @@ object ClasspathAnalyzer {
       p(s"[WARNING] ${analysis.classConflicts.map(_._2.size).sum} classes found two or more times in classpath!")
       analysis.classConflictsRanked foreach {
         case (files, classes) =>
-          p(s"${classes.size} class conflicts, ${files.size} sources:")
+          p(s"${classes.size} class conflicts found among ${files.size} sources:")
           files map (_.path) foreach { source =>
             p(s"  $source")
           }
@@ -335,7 +332,7 @@ object ClasspathAnalyzer {
 
   private def printSimpleAnalysis(files: Iterable[FileName], entries: Iterable[PathEntry])(implicit p: Printer) {
     p(s"${entries.size} contested resource paths:")
-    (entries groupBy (_.name)).toList map {
+    (entries groupBy (_.name)).toList foreach {
       case (name, resources) =>
         p(s"  $name")
     }
