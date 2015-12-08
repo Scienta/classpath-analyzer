@@ -183,16 +183,16 @@ object ClasspathAnalyzer {
 
   private def print(full: Boolean)(implicit analysis: ClasspathAnalyzer, cl: ClassLoader, p: Printer) {
     printClassPathIssues
-    p("")
-    printPropertiesIssues
-    p("")
     if (full) {
+      p("")
+      printPropertiesIssues
+      p("")
       printResourcesIssues
       p("")
       printServices
       p("")
+      printVisibleProperties
     }
-    printVisibleProperties
   }
 
   private def printServices(implicit analysis: ClasspathAnalyzer, cl: ClassLoader, p: Printer) {
