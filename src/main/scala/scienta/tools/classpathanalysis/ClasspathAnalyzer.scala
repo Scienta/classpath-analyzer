@@ -364,7 +364,7 @@ object ClasspathAnalyzer {
             case None =>
               p(s"  [WARNING] Failed to lookup ${winner.path} / ${loser.path}")
             case Some(Nil) =>
-              p(s"  [CLEANING TIME] ${loser.path} contains no visible resources of this type")
+              p(s"  [CLEANING TIME] ${loser.path} is living in the shadows")
             case Some(visible) if visible.size < 5 =>
               p(s"  ${loser.path}: ${visible.size} visible resources: ${visible map (_.name) mkString " "}")
             case Some(visible) =>
