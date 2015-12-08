@@ -2,11 +2,24 @@ package scienta.tools.classpathanalysis.api
 
 import java.io.{OutputStreamWriter, OutputStream, Writer}
 
+import org.slf4j.{LoggerFactory, Logger}
 import scienta.tools.classpathanalysis.ClasspathAnalyzer
 
 import scala.io.Codec
 
-class Reporter {
+class Reporter(full: Boolean) {
+
+  def writeToLog(): Unit =
+    writeToLog(Thread.currentThread().getContextClassLoader, LoggerFactory.getLogger(classOf[Reporter]))
+
+  def writeToLog(classLoader: ClassLoader): Unit =
+    writeToLog(classLoader, LoggerFactory.getLogger(classOf[Reporter]))
+
+  def writeToLog(classLoader: ClassLoader, logger: Logger): Unit = {
+    implicit val writer: String => Unit = logger.info
+    implicit val cl = Option(classLoader) getOrElse Thread.currentThread().getContextClassLoader
+    ClasspathAnalyzer(full = full)
+  }
 
   def writeTo(reportStream: OutputStream): Unit =
     writeTo(new OutputStreamWriter(reportStream, Codec.UTF8.charSet))
@@ -19,7 +32,7 @@ class Reporter {
 
   def writeTo(classLoader: ClassLoader, reportWriter: Writer): Unit = {
     implicit val writer: String => Unit = _ :: "\n" :: Nil foreach reportWriter.write
-    implicit val cl = classLoader
-    ClasspathAnalyzer()
+    implicit val cl = Option(classLoader) getOrElse Thread.currentThread().getContextClassLoader
+    ClasspathAnalyzer(full = full)
   }
 }
