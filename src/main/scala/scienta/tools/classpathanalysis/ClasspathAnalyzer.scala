@@ -9,7 +9,7 @@ import scala.annotation.tailrec
 import scala.reflect.internal.util.ScalaClassLoader.URLClassLoader
 import scala.language.postfixOps
 
-class ClasspathAnalysis(classLoader: ClassLoader, full: Boolean = false) {
+class ClasspathAnalyzer(classLoader: ClassLoader, full: Boolean = false) {
 
   private def invertAndMap[V, K](m: Iterable[(V, K)]): Map[K, Iterable[V]] = m groupBy (_._2) mapValues (_ map (_._1))
 
@@ -132,7 +132,7 @@ class ClasspathAnalysis(classLoader: ClassLoader, full: Boolean = false) {
     }
 }
 
-object ClasspathAnalysis {
+object ClasspathAnalyzer {
 
   private val tcl = Thread.currentThread().getContextClassLoader
 
@@ -162,16 +162,26 @@ object ClasspathAnalysis {
 
   def logDebug(full: Boolean, cl: ClassLoader, logger: Logger) = if (logger.isDebugEnabled) apply(full)(cl, logger debug)
 
-  def main(args: Array[String]) = ClasspathAnalysis(full = false)(classLoader = tcl, p = println)
+  def main(args: Array[String]) = ClasspathAnalyzer(full = false)(classLoader = tcl, p = println)
 
   def apply(full: Boolean = false)(implicit classLoader: ClassLoader, p: Printer): Unit = {
-    implicit val analysis = new ClasspathAnalysis(Option(classLoader) getOrElse tcl)
+    implicit val analysis = new ClasspathAnalyzer(Option(classLoader) getOrElse tcl)
     val start = System.currentTimeMillis()
     print(full)
-    p(s"${analysis.fileEntryPairs.size} resources analyzed in ${analysis.time}ms, ${analysis.multipleSourcePairs.size} multiples found. I/O time ${analysis.ioTime}ms, print time ${System.currentTimeMillis() - start}ms")
+    p(s"${
+      analysis.fileEntryPairs.size
+    } resources analyzed in ${
+      analysis.time
+    }ms, ${
+      analysis.multipleSourcePairs.size
+    } multiples found. I/O time ${
+      analysis.ioTime
+    }ms, print time ${
+      System.currentTimeMillis() - start
+    }ms")
   }
 
-  private def print(full: Boolean)(implicit analysis: ClasspathAnalysis, cl: ClassLoader, p: Printer) {
+  private def print(full: Boolean)(implicit analysis: ClasspathAnalyzer, cl: ClassLoader, p: Printer) {
     printClassPathIssues
     p("")
     printPropertiesIssues
@@ -185,10 +195,10 @@ object ClasspathAnalysis {
     printVisibleProperties
   }
 
-  private def isJdk(file: File)(implicit analysis: ClasspathAnalysis) =
+  private def isJdk(file: File)(implicit analysis: ClasspathAnalyzer) =
     file.getAbsolutePath startsWith analysis.javaHome.getAbsolutePath
 
-  private def printServices(implicit analysis: ClasspathAnalysis, cl: ClassLoader, p: Printer) {
+  private def printServices(implicit analysis: ClasspathAnalyzer, cl: ClassLoader, p: Printer) {
     printHeading("Visible service factory configurations")
     analysis.allSourceFiles filter { pair => analysis.isServiceLike(pair._1)} map (_._1) foreach { entry =>
       validFile(entry) foreach { file =>
@@ -204,7 +214,7 @@ object ClasspathAnalysis {
     }
   }
 
-  private def printVisibleProperties(implicit analysis: ClasspathAnalysis, cl: ClassLoader, p: Printer) {
+  private def printVisibleProperties(implicit analysis: ClasspathAnalyzer, cl: ClassLoader, p: Printer) {
     printHeading("Visible properties")
     analysis.allSourceProperties.map {
       case (entry, files) =>
@@ -228,7 +238,7 @@ object ClasspathAnalysis {
     else s"${v.substring(0, 70)}...<${v.length} total>...${v.substring(v.length - 7, v.length)}"
 
   private def printLines(header: String, value: String)(implicit p: Printer) {
-    val spaces = repeated(" ", header.length)
+    val indent = header.length
     if (value == null || value.isEmpty) {
       p(s"$header")
     } else if (value contains (System getProperty "line.separator")) {
@@ -238,20 +248,28 @@ object ClasspathAnalysis {
       } else {
         p(s"$header|${sensibleLength(lines(0))}")
         if (lines.length > 1) {
-          lines.tail foreach { line => p(s"$spaces|$line}")}
+          lines.tail foreach { line =>
+            p(s"${indent spaces()}|$line}")}
         }
       }
     } else {
       p(s"$header${sensibleLength(value)}")
     }
-}
+  }
+
+  case class SpaciousInt(i: Int) {
+    def times(s: String) = repeated(s, i)
+    def spaces(): Unit = times(" ")
+  }
+
+  private implicit def int2SpaciousInt(i: Int): SpaciousInt = SpaciousInt(i)
 
   private def repeated(str: String, countEm: Int) = (Stream continually str take countEm).mkString
 
   private def validFile(entry: PathEntry)(implicit cl: ClassLoader): Option[File] =
     entry.toContainingFile filterNot { _.getName contains "org.scala-lang" }
 
-  private def printClassPathIssues(implicit analysis: ClasspathAnalysis, cl: ClassLoader, p: Printer) {
+  private def printClassPathIssues(implicit analysis: ClasspathAnalyzer, cl: ClassLoader, p: Printer) {
     printHeading("Contested class analysis")
     if (analysis.classConflicts.isEmpty)
       p(s"[CLASS ACT] No contested classes found!")
@@ -285,7 +303,7 @@ object ClasspathAnalysis {
     }
   }
 
-  private def printPropertiesIssues(implicit analysis: ClasspathAnalysis, cl: ClassLoader, p: Printer) {
+  private def printPropertiesIssues(implicit analysis: ClasspathAnalyzer, cl: ClassLoader, p: Printer) {
     printHeading("Contested properties files analysis")
     if (analysis.propertiesConflicts.isEmpty) {
       p("[PROPERTY SOLD] No contested properties files found")
@@ -300,7 +318,7 @@ object ClasspathAnalysis {
     }
   }
 
-  private def printResourcesIssues(implicit analysis: ClasspathAnalysis, cl: ClassLoader, p: Printer) {
+  private def printResourcesIssues(implicit analysis: ClasspathAnalyzer, cl: ClassLoader, p: Printer) {
     printHeading("Contested general files analysis")
     if (analysis.fileConflicts.isEmpty) {
       p("[FILES OK] No contested resources found")
@@ -327,7 +345,7 @@ object ClasspathAnalysis {
     }
   }
 
-  private def printWinnerAnalysis(files: Iterable[FileName], entries: Iterable[PathEntry])(selector: PathEntry => Boolean = entry => true)(implicit analysis: ClasspathAnalysis, cl: ClassLoader, p: Printer) {
+  private def printWinnerAnalysis(files: Iterable[FileName], entries: Iterable[PathEntry])(selector: PathEntry => Boolean = entry => true)(implicit analysis: ClasspathAnalyzer, cl: ClassLoader, p: Printer) {
     val winners = loadersOf(entries)
     p(s"Winner(s):")
     p(s"  ${winners map (_.path) mkString " "}")
@@ -358,7 +376,7 @@ object ClasspathAnalysis {
   }
 
   private def printHeading(section: String)(implicit p: Printer) {
-    val stars = repeated("*", section.length + 8)
+    val stars = (section.length + 8) times "*"
     p(stars)
     p(s"**  $section  **")
     p(stars)
