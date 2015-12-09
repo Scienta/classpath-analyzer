@@ -6,8 +6,8 @@ import java.net.URI
 import org.slf4j.Logger
 
 import scala.annotation.tailrec
+import scala.language.{implicitConversions, postfixOps}
 import scala.reflect.internal.util.ScalaClassLoader.URLClassLoader
-import scala.language.postfixOps
 
 class ClasspathAnalyzer(classLoader: ClassLoader, full: Boolean = false) {
 
@@ -129,6 +129,13 @@ class ClasspathAnalyzer(classLoader: ClassLoader, full: Boolean = false) {
         def isIn(entries: Iterable[PathEntry])(entry: PathEntry) = winnerResources exists (entry == _)
         Some(loserResources filterNot isIn(winnerResources))
       case _ => None
+    }
+
+  def visibleResourcesCount(file: FileName)(selector: PathEntry => Boolean = entry => true): Int =
+    fileEntries get file map (_ filter selector) match {
+      case Some(Nil) => 0
+      case Some(fileResources) => fileResources.size
+      case None => 0
     }
 }
 
@@ -272,30 +279,54 @@ object ClasspathAnalyzer {
       p(s"[CLASS ACT] No contested classes found!")
     else {
       p(s"[WARNING] ${analysis.classConflicts.map(_._2.size).sum} classes found two or more times in classpath!")
-      analysis.classConflictsRanked foreach {
+      analysis.classConflictsRanked filter (_._2.size > 1) foreach {
         case (files, classes) =>
-          p(s"${classes.size} class conflicts found among ${files.size} sources:")
+          p(s"${classes.size} contested class${if (classes.size > 1) "es" else ""} found among ${files.size} sources:")
           files map (_.path) foreach { source =>
             p(s"  $source")
           }
-          p(s"Contested class(es):")
+          p(s"Contested class${if (classes.size > 1) s"es" else ""}:")
           (classes groupBy (_.packageName)).toList map {
             case (packidge, cs) => (packidge, cs map (_.simpleName))
           } map {
             case (packidge, cs) =>
               if (cs.size > 2)
-                s"  $packidge.{${cs.mkString(" ")}}"
+                s"  $packidge.{${cs.mkString(" ")}} [${cs.size} total]"
               else
                 s"  $packidge.${cs.iterator.next()}"
           } foreach p
           printWinnerAnalysis(files, classes)(_.isInstanceOf[ClassEntry])
           p("")
       }
-      p("Most conflict-prone sources:")
-      analysis.conflictyClassSourcesRanked foreach {
+
+      val allConflictySources: List[(FileName, Iterable[FileName])] =
+        analysis.conflictyClassSourcesRanked
+      val multiConflictySources: List[(FileName, Iterable[FileName])] =
+        allConflictySources.filter(_._2.size > 1)
+      val sources =
+        if (allConflictySources.isEmpty) {
+          List()
+        } else if (multiConflictySources.size > 10) {
+          p("TOP 10 most conflicted sources, ranked by number of conflicts:")
+          multiConflictySources take 10
+        } else if (allConflictySources.size > 10) {
+          p("TOP 10 most conflicted sources, ranked by number of conflicts:")
+          allConflictySources take 10
+        } else {
+          p(s"Conflicted sources ranked by number of conflicts:")
+          allConflictySources
+        }
+      sources foreach {
         case (file, conflicts) =>
-          p(s"${conflicts.size} conflict(s): ${file.path}")
-          p(s"  [${conflicts map (_.path) mkString " "}]")
+          p(s"${conflicts.size} conflict${
+            if (conflicts.size > 1) "s" else ""
+          } involve${
+            if (conflicts.size > 1) "" else "s"
+          } ${file.path}")
+          p(s"  Opponents:")
+          conflicts foreach {
+            c => p(s"    ${c.path}")
+          }
       }
     }
   }
@@ -344,33 +375,37 @@ object ClasspathAnalyzer {
 
   private def printWinnerAnalysis(files: Iterable[FileName], entries: Iterable[PathEntry])(selector: PathEntry => Boolean = entry => true)(implicit analysis: ClasspathAnalyzer, cl: ClassLoader, p: Printer) {
     val winners = loadersOf(entries)
-    p(s"Winner(s):")
-    p(s"  ${winners map (_.path) mkString " "}")
-    val losers = files filterNot { file =>
-      winners exists { winner =>
-        winner.path == file.path
-      }
-    }
-    p(s"Loser${if (losers.size > 1) "s" else ""}:")
-    winners.toList match {
+    winners match {
       case Nil =>
-        p("Winner analysis failed")
+        p("[ERROR] Winner analysis failed")
       case winner :: Nil =>
+        p(s"Winner: ${winner.path}")
+        val losers =
+          files filterNot { file => winners exists { _ .path == file.path }}
+        p(s"Loser${if (losers.size > 1) "s" else ""}:")
         losers foreach { loser =>
           analysis.filesVisibleInLoser(winner, loser)(selector) match {
             case None =>
               p(s"  [WARNING] Failed to lookup ${winner.path} / ${loser.path}")
             case Some(Nil) =>
-              p(s"  [CLEANING TIME] ${loser.path} is living in the shadows")
+              p(s"  [CLEANING TIME] ${loser.path} is living in the shadows, all its entries hidden")
             case Some(visible) if visible.size < 5 =>
-              p(s"  ${loser.path}: ${visible.size} visible resources: ${visible map (_.name) mkString " "}")
+              val total = analysis.visibleResourcesCount(loser)(selector)
+              p(s"  ${loser.path}: ${visible.size} of $total resources visible, ${
+                percentage(visible.size, total)
+              }% hidden: ${visible map (_.name) mkString " "}")
             case Some(visible) =>
-              p(s"  ${loser.path}: ${visible.size} visible resources")
+              val total = analysis.visibleResourcesCount(loser)(selector)
+              p(s"  ${loser.path}: ${visible.size} of $total resources visible, ${
+                percentage(visible.size, total)
+              }% hidden")
           }
         }
       case _ => p("Multiple winners, giving up on analysis!")
     }
   }
+
+  private def percentage(visible: Int, total: Int) = 100 - math.min(math.max(1, (100 * visible) / total), 99)
 
   private def printHeading(section: String)(implicit p: Printer) {
     val stars = (section.length + 8) times "*"

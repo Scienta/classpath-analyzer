@@ -35,4 +35,13 @@ class ClasspathReporter(full: Boolean) {
     implicit val cl = Option(classLoader) getOrElse Thread.currentThread().getContextClassLoader
     ClasspathAnalyzer(full = full)
   }
+
+  def writeTo(logger: Logger): Unit =
+    writeTo(Thread.currentThread().getContextClassLoader, logger)
+
+  def writeTo(classLoader: ClassLoader, logger: Logger): Unit = {
+    implicit val writer: String => Unit = logger.info
+    implicit val cl = Option(classLoader) getOrElse Thread.currentThread().getContextClassLoader
+    ClasspathAnalyzer(full = full)
+  }
 }
